@@ -1,19 +1,31 @@
 import * as core from '@actions/core'
-import {wait} from './wait'
+import * as github from "@actions/github";
+import { RequestError } from "@octokit/request-error";
 
 async function run(): Promise<void> {
-  try {
-    const ms: string = core.getInput('milliseconds')
-    core.debug(`Waiting ${ms} milliseconds ...`) // debug is only output if you set the secret `ACTIONS_STEP_DEBUG` to true
-
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
-
-    core.setOutput('time', new Date().toTimeString())
-  } catch (error) {
-    if (error instanceof Error) core.setFailed(error.message)
-  }
+    const pullNumber = parseInt(core.getInput('pull-number'), 10)
+    const token = core.getInput('token')
+    const octokit = github.getOctokit(token)
+    if (!Number.isNaN(pullNumber)) {
+      try {
+        const response = await octokit.pulls.listReviews({
+          owner: github.context.repo.owner,
+          repo: github.context.repo.repo,
+          pull_number: pullNumber,
+          per_page: 100
+        })
+        const reviews = response.data.filter(review => review.state == 'APPROVED')
+        core.setOutput('approved', reviews.length)
+      } catch (error) {
+        if (error instanceof RequestError) {
+          core.setFailed(`Error (code ${error.status}): ${error.message}`);
+        } else {
+          core.setFailed('Unknown Error')
+        }
+      }
+    } else {
+      core.setFailed('PR number could not be parsed, please check the input again')
+    }
 }
 
 run()
